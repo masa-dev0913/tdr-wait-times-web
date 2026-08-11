@@ -58,6 +58,29 @@ tail -f logs/scrape.log               # cronによるスクレイプが15分毎�
 crontab -l                            # cron登録内容の確認
 ```
 
+## 変更をサーバーに反映する（アップデート手順）
+
+コードを変更してGitHubにpushした後、サーバー側で最新化する手順です。
+
+```bash
+cd /opt/tdr-wait-times                        # 実際の配置パスに合わせる
+git pull
+.venv/bin/pip install -r requirements.txt      # requirements.txtが変わった時だけでOK
+sudo systemctl restart tdr-viewer              # app.py・.streamlit/config.tomlの変更を反映
+```
+
+- **`app.py` や `.streamlit/config.toml`（閲覧アプリ側）を変更した場合** → `systemctl restart tdr-viewer` が必須です。Streamlitは常駐プロセスなので、`git pull`しただけでは反映されません。
+- **`scraper/`や`common/db.py`（記録側）を変更した場合** → 再起動は不要です。`cron`は15分ごとに毎回スクリプトを新しく起動するので、次の実行から自動的に新しいコードで動きます。
+
+### 反映されたか確認する
+
+```bash
+sudo systemctl status tdr-viewer   # active (running) になっているか、起動時刻が新しくなっているか
+tail -f logs/scrape.log            # 次のcron実行(最大15分待ち)でエラーが出ていないか
+```
+
+ブラウザで `http://<サーバーのIPまたはドメイン>:8501` を開き直して（キャッシュが疑わしい場合はスーパーリロード）、見た目や挙動が変わっていれば反映できています。
+
 ### 発展（任意）
 
 - 独自ドメイン＋HTTPS化: nginxでリバースプロキシし、Let's Encrypt（certbot）で証明書を取得
