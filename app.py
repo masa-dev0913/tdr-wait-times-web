@@ -270,12 +270,10 @@ facility_lookup = (
     facility_pool[["area", "name"]].drop_duplicates().sort_values(["area", "name"])
 )
 facility_names = facility_lookup["name"].tolist()
-area_by_name = dict(zip(facility_lookup["name"], facility_lookup["area"]))
 selected = st.sidebar.multiselect(
     "施設",
     facility_names,
     default=facility_names[:5],
-    format_func=lambda n: f"{area_by_name[n]} ・ {n}",
 )
 
 if not selected:
