@@ -1,0 +1,15 @@
+[Unit]
+Description=TDR Wait Time Viewer (Streamlit)
+After=network.target
+
+[Service]
+Type=simple
+# 実際のユーザー名・パスに置き換えてください
+User=ubuntu
+WorkingDirectory=/opt/tdr-wait-times
+ExecStart=/opt/tdr-wait-times/.venv/bin/streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
