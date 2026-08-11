@@ -71,6 +71,12 @@ sudo systemctl restart tdr-viewer              # app.py・.streamlit/config.toml
 
 - **`app.py` や `.streamlit/config.toml`（閲覧アプリ側）を変更した場合** → `systemctl restart tdr-viewer` が必須です。Streamlitは常駐プロセスなので、`git pull`しただけでは反映されません。
 - **`scraper/`や`common/db.py`（記録側）を変更した場合** → 再起動は不要です。`cron`は15分ごとに毎回スクリプトを新しく起動するので、次の実行から自動的に新しいコードで動きます。
+- **`deploy/crontab.txt`（実行時間帯やスケジュール）を変更した場合** → これはテンプレートなので`git pull`では反映されません。`crontab -e`でサーバー上の実際の登録内容を手動で書き換える必要があります。
+
+  ```bash
+  crontab -e   # deploy/crontab.txt の最新内容に合わせて該当行を書き換える
+  crontab -l   # 反映されたか確認
+  ```
 
 ### 反映されたか確認する
 

@@ -1,3 +1,4 @@
 # 例: crontab -e で以下を追加してください。
 # /opt/tdr-wait-times はリポジトリの実際の配置パスに置き換えてください。
-*/15 * * * * cd /opt/tdr-wait-times && /opt/tdr-wait-times/.venv/bin/python -m scraper.run >> /opt/tdr-wait-times/logs/scrape.log 2>&1
+# 開園時間(7:00〜23:45)だけ15分おきに実行し、確実に閉園している深夜帯は動かさない。
+*/15 7-23 * * * cd /opt/tdr-wait-times && /opt/tdr-wait-times/.venv/bin/python -m scraper.run >> /opt/tdr-wait-times/logs/scrape.log 2>&1
