@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS attractions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp_jst TEXT NOT NULL,
     park TEXT NOT NULL,
+    area TEXT NOT NULL DEFAULT '',
     name TEXT NOT NULL,
     status TEXT NOT NULL,
     wait_minutes INTEGER
@@ -21,6 +22,7 @@ CREATE TABLE IF NOT EXISTS restaurants (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp_jst TEXT NOT NULL,
     park TEXT NOT NULL,
+    area TEXT NOT NULL DEFAULT '',
     name TEXT NOT NULL,
     status TEXT NOT NULL,
     wait_min INTEGER,
@@ -38,11 +40,20 @@ def get_connection() -> sqlite3.Connection:
     return sqlite3.connect(DB_PATH)
 
 
+def _ensure_area_column(conn: sqlite3.Connection, table: str) -> None:
+    """areaカラム追加前に作られた既存DBのための軽量マイグレーション。"""
+    columns = [row[1] for row in conn.execute(f"PRAGMA table_info({table})")]
+    if "area" not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN area TEXT NOT NULL DEFAULT ''")
+
+
 def init_db(conn: sqlite3.Connection | None = None) -> None:
     owns_connection = conn is None
     if owns_connection:
         conn = get_connection()
     conn.executescript(SCHEMA)
+    _ensure_area_column(conn, "attractions")
+    _ensure_area_column(conn, "restaurants")
     conn.commit()
     if owns_connection:
         conn.close()

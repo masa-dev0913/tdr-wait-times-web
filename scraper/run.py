@@ -8,7 +8,7 @@ from scraper.parse import parse_attractions, parse_restaurants
 
 JST = ZoneInfo("Asia/Tokyo")
 PARKS = ["land", "sea"]
-ATTRACTION_URL = "https://tokyodisneyresort.info/realtime.php?park={park}"
+ATTRACTION_URL = "https://tokyodisneyresort.info/realtime.php?park={park}&order=area"
 RESTAURANT_URL = "https://tokyodisneyresort.info/restwait.php?park={park}"
 
 
@@ -21,17 +21,17 @@ def run() -> None:
         attraction_html = fetch_html(ATTRACTION_URL.format(park=park))
         for item in parse_attractions(attraction_html):
             conn.execute(
-                "INSERT INTO attractions (timestamp_jst, park, name, status, wait_minutes) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (now, park, item["name"], item["status"], item["wait_minutes"]),
+                "INSERT INTO attractions (timestamp_jst, park, area, name, status, wait_minutes) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (now, park, item["area"], item["name"], item["status"], item["wait_minutes"]),
             )
 
         restaurant_html = fetch_html(RESTAURANT_URL.format(park=park))
         for item in parse_restaurants(restaurant_html):
             conn.execute(
-                "INSERT INTO restaurants (timestamp_jst, park, name, status, wait_min, wait_max) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (now, park, item["name"], item["status"], item["wait_min"], item["wait_max"]),
+                "INSERT INTO restaurants (timestamp_jst, park, area, name, status, wait_min, wait_max) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (now, park, item["area"], item["name"], item["status"], item["wait_min"], item["wait_max"]),
             )
 
     conn.commit()

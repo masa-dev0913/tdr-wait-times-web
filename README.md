@@ -89,3 +89,7 @@ tail -f logs/scrape.log            # 次のcron実行(最大15分待ち)でエ�
 ## データ取得についての注意
 
 `tokyodisneyresort.info` は非公式の有志運営サイトです。15分に1回・1リクエストずつという低頻度アクセスに留め、専用のUser-Agent（`scraper/fetch.py`）を設定しています。サイト構造が変わった場合は `scraper/parse.py` の修正が必要になることがあります。
+
+## DBスキーマの変更について
+
+`common/db.py`の`init_db()`は、既存の`data/waittimes.db`に新しいカラム（例: `area`）が無ければ自動で`ALTER TABLE`する軽量マイグレーションを行います。`git pull`して再起動するだけで、手動でのDB操作は不要です。ただし、マイグレーション前に記録された古い行は新カラムが空（`area`なら「その他」表示）のままなので、履歴データのその部分だけは遡って埋まりません。

@@ -12,6 +12,7 @@ st.set_page_config(page_title="TDR待ち時間トラッカー", page_icon="🏰"
 
 PARK_LABELS = {"land": "東京ディズニーランド", "sea": "東京ディズニーシー"}
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+UNCLASSIFIED_AREA = "その他"
 
 INK = "#1c2430"
 MUTED = "#57626c"
@@ -63,8 +64,13 @@ CSS = f"""
     font-size: 14px;
     color: {INK};
     line-height: 1.35;
-    margin-bottom: 10px;
+    margin-bottom: 2px;
     min-height: 2.7em;
+  }}
+  .wt-card-area {{
+    font-size: 11px;
+    color: {MUTED};
+    margin-bottom: 10px;
   }}
   .wt-card-row {{
     display: flex;
@@ -88,6 +94,34 @@ CSS = f"""
     text-overflow: ellipsis;
     white-space: nowrap;
   }}
+
+  .wt-rank-list {{
+    display: flex;
+    flex-direction: column;
+    background: {CARD_BG};
+    border: 1px solid {LINE};
+    border-radius: 12px;
+    padding: 4px 14px;
+    margin: 4px 0 6px;
+  }}
+  .wt-rank-row {{
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid {LINE};
+  }}
+  .wt-rank-row:last-child {{ border-bottom: none; }}
+  .wt-rank-no {{
+    font-weight: 800;
+    font-size: 14px;
+    color: {MUTED};
+    width: 1.6em;
+    flex: none;
+    text-align: center;
+  }}
+  .wt-rank-name {{ flex: 1; font-weight: 700; font-size: 14px; color: {INK}; }}
+  .wt-rank-area {{ font-weight: 400; font-size: 11.5px; color: {MUTED}; margin-left: 6px; }}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -105,9 +139,11 @@ def load_data(table: str, park: str, start: str, end: str) -> pd.DataFrame:
         "ORDER BY timestamp_jst"
     )
     with sqlite3.connect(DB_PATH) as conn:
-        return pd.read_sql(
+        df = pd.read_sql(
             query, conn, params=(park, start, end), parse_dates=["timestamp_jst"]
         )
+    df["area"] = df["area"].replace("", UNCLASSIFIED_AREA)
+    return df
 
 
 def severity(minutes: float | None) -> str:
@@ -136,19 +172,48 @@ def wait_label(row: pd.Series, table: str) -> tuple[str, float | None]:
 
 def render_snapshot_cards(latest: pd.DataFrame, table: str) -> None:
     rows_html = []
-    for _, row in latest.sort_values("name").iterrows():
+    for _, row in latest.sort_values(["area", "name"]).iterrows():
         label, minutes = wait_label(row, table)
         bg, fg = SEVERITY_COLORS[severity(minutes)]
         name = html.escape(str(row["name"]))
+        area = html.escape(str(row["area"]))
         status = html.escape(str(row["status"]))
         rows_html.append(
             f'<div class="wt-card"><div class="wt-card-name">{name}</div>'
+            f'<div class="wt-card-area">{area}</div>'
             f'<div class="wt-card-row">'
             f'<span class="wt-pill" style="background:{bg};color:{fg}">{html.escape(label)}</span>'
             f'<span class="wt-card-status">{status}</span>'
             f"</div></div>"
         )
     st.markdown(f'<div class="wt-grid">{"".join(rows_html)}</div>', unsafe_allow_html=True)
+
+
+def render_popularity_ranking(df_period: pd.DataFrame, top_n: int = 5) -> None:
+    stats = (
+        df_period.dropna(subset=["wait_minutes"])
+        .groupby(["name", "area"])["wait_minutes"]
+        .mean()
+        .reset_index()
+        .sort_values("wait_minutes", ascending=False)
+        .head(top_n)
+    )
+    if stats.empty:
+        st.caption("この期間は待ち時間の記録がありません。")
+        return
+    rows_html = []
+    for rank, (_, row) in enumerate(stats.iterrows(), start=1):
+        bg, fg = SEVERITY_COLORS[severity(row["wait_minutes"])]
+        name = html.escape(str(row["name"]))
+        area = html.escape(str(row["area"]))
+        rows_html.append(
+            '<div class="wt-rank-row">'
+            f'<span class="wt-rank-no">{rank}</span>'
+            f'<span class="wt-rank-name">{name}<span class="wt-rank-area">{area}</span></span>'
+            f'<span class="wt-pill" style="background:{bg};color:{fg}">平均{row["wait_minutes"]:.0f}分</span>'
+            "</div>"
+        )
+    st.markdown(f'<div class="wt-rank-list">{"".join(rows_html)}</div>', unsafe_allow_html=True)
 
 
 st.title("東京ディズニーランド・シー 待ち時間トラッカー")
@@ -185,8 +250,33 @@ if df_period.empty:
     st.info("選択した期間のデータがありません。スクレイパーの実行を待つか、期間を変えてお試しください。")
     st.stop()
 
-facility_names = sorted(df_period["name"].unique())
-selected = st.sidebar.multiselect("施設", facility_names, default=facility_names[:5])
+# エリア情報を追加する前の古いレコードは area が空になっているため、
+# 同じ施設内では最新の分類に統一する（過渡期に同じ施設が2つのエリアに
+# 分かれて表示されるのを防ぐ）。
+canonical_area = (
+    df_period.sort_values("timestamp_jst").drop_duplicates("name", keep="last").set_index("name")["area"]
+)
+df_period["area"] = df_period["name"].map(canonical_area)
+
+area_options = sorted(df_period["area"].unique())
+selected_areas = st.sidebar.multiselect("エリア", area_options, default=area_options)
+
+if not selected_areas:
+    st.warning("エリアを選択してください。")
+    st.stop()
+
+facility_pool = df_period[df_period["area"].isin(selected_areas)]
+facility_lookup = (
+    facility_pool[["area", "name"]].drop_duplicates().sort_values(["area", "name"])
+)
+facility_names = facility_lookup["name"].tolist()
+area_by_name = dict(zip(facility_lookup["name"], facility_lookup["area"]))
+selected = st.sidebar.multiselect(
+    "施設",
+    facility_names,
+    default=facility_names[:5],
+    format_func=lambda n: f"{area_by_name[n]} ・ {n}",
+)
 
 if not selected:
     st.warning("施設を選択してください。")
@@ -211,6 +301,11 @@ if len(valid):
     kpi3.metric("最大待ち時間", f"{valid.max():.0f}分", help=str(top_row["name"]))
 else:
     kpi3.metric("最大待ち時間", "—")
+
+if table == "attractions":
+    st.subheader("人気アトラクション")
+    st.caption("選択中の期間・パーク全体で、平均待ち時間が長い上位5施設です（左のフィルターには連動しません）。")
+    render_popularity_ranking(df_period)
 
 st.subheader("待ち時間の推移")
 fig = px.line(

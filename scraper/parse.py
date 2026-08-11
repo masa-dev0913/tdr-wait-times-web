@@ -3,6 +3,7 @@ import re
 from bs4 import BeautifulSoup, Tag
 
 _WAIT_NUMBER_RE = re.compile(r"(\d+)\s*分")
+DEFAULT_AREA = "その他"
 
 
 def _direct_text(tag: Tag) -> str:
@@ -24,35 +25,41 @@ def _condition_text(tag: Tag) -> str:
 
 
 def _iter_blocks(html: str):
+    """(area, name, condition_text) を文書順に返す。
+    エリア見出し(h3.area_name)と施設ブロック(.realtime-attr)は同じ階層に
+    並んでいるので、見出しに出会うたびに「現在のエリア」を更新しながら進む。"""
     soup = BeautifulSoup(html, "lxml")
-    for block in soup.select(".realtime-attr"):
-        name_div = block.select_one(".realtime-attr-name")
-        cond_div = block.select_one(".realtime-attr-condition")
+    current_area = DEFAULT_AREA
+    for el in soup.select("h3.area_name, .realtime-attr"):
+        if el.name == "h3":
+            text = el.get_text(strip=True)
+            current_area = text if text else DEFAULT_AREA
+            continue
+        name_div = el.select_one(".realtime-attr-name")
+        cond_div = el.select_one(".realtime-attr-condition")
         if name_div is None or cond_div is None:
             continue
-        yield _direct_text(name_div), _condition_text(cond_div)
+        yield current_area, _direct_text(name_div), _condition_text(cond_div)
 
 
 def parse_attractions(html: str) -> list[dict]:
-    """Parse an attraction realtime.php page into
-    [{"name", "status", "wait_minutes"}, ...]."""
+    """realtime.php(order=area)を[{"area","name","status","wait_minutes"}, ...]に変換する。"""
     results = []
-    for name, condition_text in _iter_blocks(html):
+    for area, name, condition_text in _iter_blocks(html):
         numbers = [int(n) for n in _WAIT_NUMBER_RE.findall(condition_text)]
         if numbers:
             status, wait_minutes = "運営中", numbers[0]
         else:
             status, wait_minutes = condition_text or "不明", None
-        results.append({"name": name, "status": status, "wait_minutes": wait_minutes})
+        results.append({"area": area, "name": name, "status": status, "wait_minutes": wait_minutes})
     return results
 
 
 def parse_restaurants(html: str) -> list[dict]:
-    """Parse a restwait.php page into
-    [{"name", "status", "wait_min", "wait_max"}, ...].
-    Restaurant waits are often a range like "10分 〜 30分"."""
+    """restwait.phpを[{"area","name","status","wait_min","wait_max"}, ...]に変換する。
+    レストランの待ち時間は「10分 〜 30分」のような範囲表記のことが多い。"""
     results = []
-    for name, condition_text in _iter_blocks(html):
+    for area, name, condition_text in _iter_blocks(html):
         numbers = [int(n) for n in _WAIT_NUMBER_RE.findall(condition_text)]
         if numbers:
             status = "営業中"
@@ -61,5 +68,7 @@ def parse_restaurants(html: str) -> list[dict]:
         else:
             status = condition_text or "不明"
             wait_min = wait_max = None
-        results.append({"name": name, "status": status, "wait_min": wait_min, "wait_max": wait_max})
+        results.append(
+            {"area": area, "name": name, "status": status, "wait_min": wait_min, "wait_max": wait_max}
+        )
     return results
