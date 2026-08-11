@@ -14,6 +14,25 @@ PARK_LABELS = {"land": "東京ディズニーランド", "sea": "東京ディズ
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 UNCLASSIFIED_AREA = "その他"
 
+# 初回表示時に選択しておく施設（アトラクションのみ）。
+DEFAULT_ATTRACTIONS = {
+    "land": [
+        "美女と野獣“魔法のものがたり”",
+        "スプラッシュ・マウンテン",
+        "ビッグサンダー・マウンテン",
+        "モンスターズ・インク",
+        "プーさんのハニーハント",
+    ],
+    "sea": [
+        "センター・オブ・ジ・アース",
+        "ソアリン：ファンタスティック・フライト",
+        "トイ・ストーリー・マニア！",
+        "インディージョーンズ",
+        "アナとエルサのフローズンジャーニー",
+        "ピーターパンのネバーランドアドベンチャー",
+    ],
+}
+
 INK = "#1c2430"
 MUTED = "#57626c"
 LINE = "#dfe1db"
@@ -270,10 +289,12 @@ facility_lookup = (
     facility_pool[["area", "name"]].drop_duplicates().sort_values(["area", "name"])
 )
 facility_names = facility_lookup["name"].tolist()
+preferred = [n for n in DEFAULT_ATTRACTIONS.get(park, []) if n in facility_names] if table == "attractions" else []
+default_facilities = preferred if preferred else facility_names[:5]
 selected = st.sidebar.multiselect(
     "施設",
     facility_names,
-    default=facility_names[:5],
+    default=default_facilities,
 )
 
 if not selected:
