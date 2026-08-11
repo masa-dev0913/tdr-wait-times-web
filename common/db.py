@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS attractions (
 );
 CREATE INDEX IF NOT EXISTS idx_attractions_lookup
     ON attractions (park, name, timestamp_jst);
+CREATE INDEX IF NOT EXISTS idx_attractions_period
+    ON attractions (park, timestamp_jst);
 
 CREATE TABLE IF NOT EXISTS restaurants (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,6 +28,8 @@ CREATE TABLE IF NOT EXISTS restaurants (
 );
 CREATE INDEX IF NOT EXISTS idx_restaurants_lookup
     ON restaurants (park, name, timestamp_jst);
+CREATE INDEX IF NOT EXISTS idx_restaurants_period
+    ON restaurants (park, timestamp_jst);
 """
 
 

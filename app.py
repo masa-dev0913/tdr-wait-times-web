@@ -12,11 +12,24 @@ st.set_page_config(page_title="TDR待ち時間トラッカー", layout="wide")
 PARK_LABELS = {"land": "東京ディズニーランド", "sea": "東京ディズニーシー"}
 
 
+TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
 @st.cache_data(ttl=60)
-def load_data(table: str) -> pd.DataFrame:
+def load_data(table: str, park: str, start: str, end: str) -> pd.DataFrame:
+    """期間・パークで絞り込んだ分だけをSQLite側でSELECTする。
+    テーブル全件を読んでからpandasで絞ると、データが増えるほど
+    メモリ使用量が際限なく伸びてしまうため。"""
     init_db()
+    query = (
+        f"SELECT * FROM {table} "
+        "WHERE park = ? AND timestamp_jst >= ? AND timestamp_jst <= ? "
+        "ORDER BY timestamp_jst"
+    )
     with sqlite3.connect(DB_PATH) as conn:
-        return pd.read_sql(f"SELECT * FROM {table}", conn, parse_dates=["timestamp_jst"])
+        return pd.read_sql(
+            query, conn, params=(park, start, end), parse_dates=["timestamp_jst"]
+        )
 
 
 st.title("東京ディズニーランド・シー 待ち時間トラッカー")
@@ -24,14 +37,8 @@ st.caption("非公式サイト tokyodisneyresort.info の公開データを15分
 
 category = st.sidebar.radio("カテゴリ", ["アトラクション", "レストラン"])
 table = "attractions" if category == "アトラクション" else "restaurants"
-df = load_data(table)
-
-if df.empty:
-    st.info("まだデータがありません。スクレイパーの実行を待ってください。")
-    st.stop()
 
 park = st.sidebar.selectbox("パーク", options=["land", "sea"], format_func=lambda p: PARK_LABELS[p])
-df_park = df[df["park"] == park]
 
 period = st.sidebar.radio("期間", ["今日", "過去7日間", "カスタム"])
 now = datetime.now()
@@ -53,10 +60,10 @@ else:
         start = datetime.combine(single_date, datetime.min.time())
         end = datetime.combine(single_date, datetime.max.time())
 
-df_period = df_park[(df_park["timestamp_jst"] >= start) & (df_park["timestamp_jst"] <= end)]
+df_period = load_data(table, park, start.strftime(TIMESTAMP_FORMAT), end.strftime(TIMESTAMP_FORMAT))
 
 if df_period.empty:
-    st.warning("選択した期間のデータがありません。期間を変えてお試しください。")
+    st.info("選択した期間のデータがありません。スクレイパーの実行を待つか、期間を変えてお試しください。")
     st.stop()
 
 facility_names = sorted(df_period["name"].unique())
