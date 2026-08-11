@@ -1,3 +1,4 @@
+import html
 import sqlite3
 from datetime import datetime, timedelta
 
@@ -7,12 +8,89 @@ import streamlit as st
 
 from common.db import DB_PATH, init_db
 
-st.set_page_config(page_title="TDR待ち時間トラッカー", layout="wide")
+st.set_page_config(page_title="TDR待ち時間トラッカー", page_icon="🏰", layout="wide")
 
 PARK_LABELS = {"land": "東京ディズニーランド", "sea": "東京ディズニーシー"}
-
-
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+INK = "#1c2430"
+MUTED = "#57626c"
+LINE = "#dfe1db"
+CARD_BG = "#ffffff"
+ACCENT = "#3b6ea5"
+SEVERITY_COLORS = {
+    "green": ("#e4f2e7", "#1f7a3d"),
+    "amber": ("#fbeed9", "#a05a12"),
+    "red": ("#fbe3e0", "#b3341c"),
+    "grey": ("#e8e9e4", "#5c6570"),
+}
+
+CSS = f"""
+<style>
+  .stApp {{
+    font-family: -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic UI",
+      "Yu Gothic", "Meiryo", Arial, sans-serif;
+  }}
+  [data-testid="stSidebar"] {{ background: #eceee8; }}
+  h1, h2, h3 {{ letter-spacing: -0.01em; }}
+  [data-testid="stMetricValue"] {{ font-variant-numeric: tabular-nums; }}
+
+  .wt-updated {{
+    display: inline-block;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: {MUTED};
+    background: #eceee8;
+    border-radius: 999px;
+    padding: 4px 12px;
+    margin: -4px 0 18px;
+  }}
+
+  .wt-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 10px;
+    margin: 4px 0 6px;
+  }}
+  .wt-card {{
+    background: {CARD_BG};
+    border: 1px solid {LINE};
+    border-radius: 12px;
+    padding: 13px 15px;
+  }}
+  .wt-card-name {{
+    font-weight: 700;
+    font-size: 14px;
+    color: {INK};
+    line-height: 1.35;
+    margin-bottom: 10px;
+    min-height: 2.7em;
+  }}
+  .wt-card-row {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }}
+  .wt-pill {{
+    font-weight: 700;
+    font-size: 12.5px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }}
+  .wt-card-status {{
+    font-size: 11.5px;
+    color: {MUTED};
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }}
+</style>
+"""
+st.markdown(CSS, unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=60)
@@ -30,6 +108,47 @@ def load_data(table: str, park: str, start: str, end: str) -> pd.DataFrame:
         return pd.read_sql(
             query, conn, params=(park, start, end), parse_dates=["timestamp_jst"]
         )
+
+
+def severity(minutes: float | None) -> str:
+    if minutes is None or pd.isna(minutes):
+        return "grey"
+    if minutes <= 15:
+        return "green"
+    if minutes <= 40:
+        return "amber"
+    return "red"
+
+
+def wait_label(row: pd.Series, table: str) -> tuple[str, float | None]:
+    if table == "attractions":
+        minutes = row["wait_minutes"]
+        if pd.isna(minutes):
+            return row["status"], None
+        return f"{int(minutes)}分", minutes
+    lo, hi = row["wait_min"], row["wait_max"]
+    if pd.isna(lo):
+        return row["status"], None
+    lo, hi = int(lo), int(hi)
+    label = f"{lo}分" if lo == hi else f"{lo}〜{hi}分"
+    return label, hi
+
+
+def render_snapshot_cards(latest: pd.DataFrame, table: str) -> None:
+    rows_html = []
+    for _, row in latest.sort_values("name").iterrows():
+        label, minutes = wait_label(row, table)
+        bg, fg = SEVERITY_COLORS[severity(minutes)]
+        name = html.escape(str(row["name"]))
+        status = html.escape(str(row["status"]))
+        rows_html.append(
+            f'<div class="wt-card"><div class="wt-card-name">{name}</div>'
+            f'<div class="wt-card-row">'
+            f'<span class="wt-pill" style="background:{bg};color:{fg}">{html.escape(label)}</span>'
+            f'<span class="wt-card-status">{status}</span>'
+            f"</div></div>"
+        )
+    st.markdown(f'<div class="wt-grid">{"".join(rows_html)}</div>', unsafe_allow_html=True)
 
 
 st.title("東京ディズニーランド・シー 待ち時間トラッカー")
@@ -74,48 +193,51 @@ if not selected:
     st.stop()
 
 df_selected = df_period[df_period["name"].isin(selected)].copy()
+if table == "restaurants":
+    df_selected["wait_mid"] = (df_selected["wait_min"] + df_selected["wait_max"]) / 2
+
+value_col = "wait_minutes" if table == "attractions" else "wait_mid"
+latest_ts = df_selected["timestamp_jst"].max()
+latest = df_selected[df_selected["timestamp_jst"] == latest_ts]
+
+st.markdown(f'<span class="wt-updated">最終更新 {latest_ts:%Y-%m-%d %H:%M}</span>', unsafe_allow_html=True)
+
+kpi1, kpi2, kpi3 = st.columns(3)
+kpi1.metric("表示中の施設", f"{len(selected)}件")
+valid = latest[value_col].dropna()
+kpi2.metric("平均待ち時間", f"{valid.mean():.0f}分" if len(valid) else "—")
+if len(valid):
+    top_row = latest.loc[valid.idxmax()]
+    kpi3.metric("最大待ち時間", f"{valid.max():.0f}分", help=str(top_row["name"]))
+else:
+    kpi3.metric("最大待ち時間", "—")
 
 st.subheader("待ち時間の推移")
-if table == "attractions":
-    fig = px.line(
-        df_selected.sort_values("timestamp_jst"),
-        x="timestamp_jst", y="wait_minutes", color="name", markers=True,
-    )
-    fig.update_layout(yaxis_title="待ち時間（分）", xaxis_title="時刻", legend_title="施設")
-else:
-    df_selected["wait_mid"] = (df_selected["wait_min"] + df_selected["wait_max"]) / 2
-    fig = px.line(
-        df_selected.sort_values("timestamp_jst"),
-        x="timestamp_jst", y="wait_mid", color="name", markers=True,
-    )
-    fig.update_layout(yaxis_title="待ち時間の目安（分）", xaxis_title="時刻", legend_title="施設")
+fig = px.line(
+    df_selected.sort_values("timestamp_jst"),
+    x="timestamp_jst", y=value_col, color="name", markers=True,
+)
+fig.update_layout(
+    yaxis_title="待ち時間（分）" if table == "attractions" else "待ち時間の目安（分）",
+    xaxis_title=None,
+    legend=dict(orientation="h", yanchor="top", y=-0.22, xanchor="center", x=0.5, title=None),
+    margin=dict(l=10, r=10, t=10, b=10),
+    colorway=["#3b6ea5", "#b5762c", "#1f7a3d", "#8b5fbf", "#b3341c", "#5c6570"],
+    plot_bgcolor="rgba(0,0,0,0)",
+    paper_bgcolor="rgba(0,0,0,0)",
+    font=dict(color=INK, size=12),
+)
+fig.update_xaxes(gridcolor=LINE)
+fig.update_yaxes(gridcolor=LINE)
 st.plotly_chart(fig, use_container_width=True)
 
 st.subheader("直近のスナップショット")
-latest_ts = df_period["timestamp_jst"].max()
-latest = df_period[df_period["timestamp_jst"] == latest_ts]
-st.caption(f"最終更新: {latest_ts:%Y-%m-%d %H:%M}")
-if table == "attractions":
-    st.dataframe(
-        latest[["name", "status", "wait_minutes"]].sort_values("wait_minutes", ascending=False),
-        use_container_width=True, hide_index=True,
-    )
-else:
-    st.dataframe(
-        latest[["name", "status", "wait_min", "wait_max"]],
-        use_container_width=True, hide_index=True,
-    )
+render_snapshot_cards(latest, table)
 
 st.subheader("日別サマリー（平均・最大 待ち時間）")
 df_selected["date"] = df_selected["timestamp_jst"].dt.date
-if table == "attractions":
-    summary = (
-        df_selected.groupby(["date", "name"])["wait_minutes"]
-        .agg(平均="mean", 最大="max").round(1).reset_index()
-    )
-else:
-    summary = (
-        df_selected.groupby(["date", "name"])["wait_mid"]
-        .agg(平均="mean", 最大="max").round(1).reset_index()
-    )
+summary = (
+    df_selected.groupby(["date", "name"])[value_col]
+    .agg(平均="mean", 最大="max").round(1).reset_index()
+)
 st.dataframe(summary, use_container_width=True, hide_index=True)

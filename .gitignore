@@ -3,6 +3,6 @@ __pycache__/
 *.pyc
 data/*.db
 logs/*.log
-.streamlit/
+.streamlit/secrets.toml
 streamlit.log
 .vscode/
